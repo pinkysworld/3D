@@ -13,6 +13,9 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x1a1f2b);
 scene.fog = new THREE.FogExp2(0x10131a, 0.018);
 
+const worldRoot = new THREE.Group();
+scene.add(worldRoot);
+
 const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 500);
 camera.position.set(0, 5, 18);
 
@@ -54,17 +57,24 @@ const quest = {
 const colliders = [];
 const interactables = [];
 const itemMeshes = [];
+let worldInitialized = false;
 
-initEnvironment();
+setupScene();
 initQuestUI();
 
 startButton.addEventListener('click', () => {
+  if (!worldInitialized) {
+    buildWorld();
+  }
   startScreen.classList.add('hidden');
   hud.classList.remove('hidden');
   controls.lock();
 });
 
 controls.addEventListener('lock', () => {
+  if (!worldInitialized) {
+    buildWorld();
+  }
   startScreen.classList.add('hidden');
   hud.classList.remove('hidden');
 });
@@ -154,7 +164,7 @@ function togglePanel(panel) {
   }
 }
 
-function initEnvironment() {
+function setupScene() {
   const hemiLight = new THREE.HemisphereLight(0xbcc6ff, 0x2f2a20, 0.6);
   scene.add(hemiLight);
 
@@ -185,15 +195,30 @@ function initEnvironment() {
   const sky = new THREE.Mesh(skyGeo, skyMat);
   scene.add(sky);
 
+  scene.add(controls.getObject());
+  controls.getObject().position.set(0, 5, 18);
+}
+
+function buildWorld() {
+  if (worldInitialized) return;
+
+  worldRoot.clear();
+  colliders.length = 0;
+  interactables.length = 0;
+  itemMeshes.length = 0;
+
   createTerrain();
+  createPaths();
   createTown();
+  createMarketplace();
+  createFarmland();
   createForest();
   createWater();
+  createRocks();
   createProps();
   createNPCs();
 
-  scene.add(controls.getObject());
-  controls.getObject().position.set(0, 5, 18);
+  worldInitialized = true;
 }
 
 function createTerrain() {
@@ -227,7 +252,37 @@ function createTerrain() {
 
   const terrain = new THREE.Mesh(geometry, material);
   terrain.receiveShadow = true;
-  scene.add(terrain);
+  worldRoot.add(terrain);
+}
+
+function createPaths() {
+  const pathGroup = new THREE.Group();
+  const pathMaterial = new THREE.MeshStandardMaterial({ color: 0x6e5a3b, roughness: 0.95 });
+
+  const mainRoad = new THREE.Mesh(new THREE.PlaneGeometry(8, 80), pathMaterial);
+  mainRoad.rotation.x = -Math.PI / 2;
+  mainRoad.position.set(0, 0.12, -20);
+  mainRoad.receiveShadow = true;
+  pathGroup.add(mainRoad);
+
+  const plazaPath = new THREE.Mesh(new THREE.RingGeometry(12, 18, 32, 1, Math.PI / 4, Math.PI * 1.5), pathMaterial);
+  plazaPath.rotation.x = -Math.PI / 2;
+  plazaPath.position.y = 0.11;
+  pathGroup.add(plazaPath);
+
+  const forestTrail = new THREE.Mesh(new THREE.PlaneGeometry(5, 60), pathMaterial);
+  forestTrail.rotation.x = -Math.PI / 2;
+  forestTrail.position.set(10, 0.11, 40);
+  forestTrail.rotation.y = 0.2;
+  pathGroup.add(forestTrail);
+
+  const pondTrail = new THREE.Mesh(new THREE.PlaneGeometry(4, 40), pathMaterial);
+  pondTrail.rotation.x = -Math.PI / 2;
+  pondTrail.position.set(-24, 0.11, 16);
+  pondTrail.rotation.y = -0.4;
+  pathGroup.add(pondTrail);
+
+  worldRoot.add(pathGroup);
 }
 
 function createTown() {
@@ -245,21 +300,55 @@ function createTown() {
     new THREE.Vector3(-18, 0, -6),
     new THREE.Vector3(22, 0, 4),
     new THREE.Vector3(-12, 0, 20),
-    new THREE.Vector3(16, 0, -18)
+    new THREE.Vector3(16, 0, -18),
+    new THREE.Vector3(-24, 0, 10),
+    new THREE.Vector3(26, 0, -12)
   ];
 
   housePositions.forEach((position, index) => {
     const house = buildHouse(position, index % 2 === 0 ? 1 : -1);
     townCenter.add(house);
+    house.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(house);
     colliders.push(box);
   });
 
+  const tavern = buildTavern();
+  tavern.position.set(-4, 0, -16);
+  townCenter.add(tavern);
+  tavern.updateMatrixWorld(true);
+  colliders.push(new THREE.Box3().setFromObject(tavern));
+
+  const watchTower = buildWatchTower();
+  watchTower.position.set(30, 0, 22);
+  townCenter.add(watchTower);
+  watchTower.updateMatrixWorld(true);
+  colliders.push(new THREE.Box3().setFromObject(watchTower));
+
   const walls = buildTownWalls();
   townCenter.add(walls);
-  colliders.push(new THREE.Box3().setFromObject(walls));
 
-  scene.add(townCenter);
+  worldRoot.add(townCenter);
+}
+
+function createMarketplace() {
+  const market = new THREE.Group();
+  const stallPositions = [
+    { position: new THREE.Vector3(-10, 0, 6), rotation: Math.PI / 6 },
+    { position: new THREE.Vector3(8, 0, 10), rotation: -Math.PI / 4 },
+    { position: new THREE.Vector3(10, 0, -8), rotation: Math.PI / 3 }
+  ];
+
+  stallPositions.forEach((entry, index) => {
+    const stall = buildMarketStall(index);
+    stall.position.copy(entry.position);
+    stall.rotation.y = entry.rotation;
+    market.add(stall);
+    stall.updateMatrixWorld(true);
+    colliders.push(new THREE.Box3().setFromObject(stall));
+  });
+
+  worldRoot.add(market);
 }
 
 function buildHouse(position, orientation = 1) {
@@ -289,6 +378,24 @@ function buildHouse(position, orientation = 1) {
   door.position.set(0, 1.5, 4.2);
   houseGroup.add(door);
 
+  const windowMaterial = new THREE.MeshStandardMaterial({ color: 0xdec58a, emissive: 0x30200f, emissiveIntensity: 0.3 });
+  const windowPositions = [
+    new THREE.Vector3(3.2, 3.2, 4.05),
+    new THREE.Vector3(-3.2, 3.2, 4.05),
+    new THREE.Vector3(4.9, 3.2, 2),
+    new THREE.Vector3(-4.9, 3.2, -2)
+  ];
+  windowPositions.forEach((pos) => {
+    const window = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.6), windowMaterial);
+    window.position.copy(pos);
+    if (Math.abs(pos.z) > 3.9) {
+      window.rotation.y = Math.PI;
+    } else {
+      window.rotation.y = Math.PI / 2 * Math.sign(pos.x);
+    }
+    houseGroup.add(window);
+  });
+
   const chimney = new THREE.Mesh(
     new THREE.BoxGeometry(1, 3, 1),
     new THREE.MeshStandardMaterial({ color: 0x3a2a24 })
@@ -300,6 +407,150 @@ function buildHouse(position, orientation = 1) {
   houseGroup.rotation.y = (Math.PI / 2) * orientation;
 
   return houseGroup;
+}
+
+function buildTavern() {
+  const tavern = new THREE.Group();
+
+  const base = new THREE.Mesh(
+    new THREE.BoxGeometry(14, 7, 10),
+    new THREE.MeshStandardMaterial({ color: 0x7b5030, roughness: 0.7 })
+  );
+  base.position.y = 3.5;
+  base.castShadow = true;
+  base.receiveShadow = true;
+  tavern.add(base);
+
+  const roof = new THREE.Mesh(
+    new THREE.ConeGeometry(9, 5, 6),
+    new THREE.MeshStandardMaterial({ color: 0x3a1f12, roughness: 0.8 })
+  );
+  roof.position.y = 8;
+  roof.rotation.y = Math.PI / 6;
+  roof.castShadow = true;
+  tavern.add(roof);
+
+  const signPost = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.25, 0.25, 6, 8),
+    new THREE.MeshStandardMaterial({ color: 0x5a3b22, roughness: 0.8 })
+  );
+  signPost.position.set(7, 3, 4.6);
+  tavern.add(signPost);
+
+  const signBoard = new THREE.Mesh(
+    new THREE.BoxGeometry(3, 2, 0.3),
+    new THREE.MeshStandardMaterial({ color: 0xd4b26b, roughness: 0.6 })
+  );
+  signBoard.position.set(7, 4.5, 6);
+  tavern.add(signBoard);
+
+  return tavern;
+}
+
+function buildWatchTower() {
+  const tower = new THREE.Group();
+
+  const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(3, 3.5, 12, 12),
+    new THREE.MeshStandardMaterial({ color: 0x6d5137, roughness: 0.85 })
+  );
+  base.position.y = 6;
+  base.castShadow = true;
+  base.receiveShadow = true;
+  tower.add(base);
+
+  const top = new THREE.Mesh(
+    new THREE.CylinderGeometry(4, 4, 2.4, 16),
+    new THREE.MeshStandardMaterial({ color: 0x4f3723, roughness: 0.8 })
+  );
+  top.position.y = 12.6;
+  tower.add(top);
+
+  const roof = new THREE.Mesh(
+    new THREE.ConeGeometry(4.8, 3, 8),
+    new THREE.MeshStandardMaterial({ color: 0x311f14, roughness: 0.8 })
+  );
+  roof.position.y = 14.6;
+  tower.add(roof);
+
+  const torch = new THREE.PointLight(0xffc477, 1, 30);
+  torch.position.set(0, 13, 3);
+  torch.castShadow = true;
+  tower.add(torch);
+
+  return tower;
+}
+
+function buildMarketStall(index) {
+  const stall = new THREE.Group();
+
+  const colors = [0xc9694a, 0x4f7d8a, 0x8a4f7d];
+  const canopy = new THREE.Mesh(
+    new THREE.BoxGeometry(6, 0.4, 4),
+    new THREE.MeshStandardMaterial({ color: colors[index % colors.length], roughness: 0.5 })
+  );
+  canopy.position.y = 3.4;
+  canopy.castShadow = true;
+  stall.add(canopy);
+
+  for (let i = 0; i < 4; i++) {
+    const post = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.15, 0.15, 3.4, 6),
+      new THREE.MeshStandardMaterial({ color: 0x5a3b22, roughness: 0.8 })
+    );
+    const offsetX = i < 2 ? -2.6 : 2.6;
+    const offsetZ = i % 2 === 0 ? -1.6 : 1.6;
+    post.position.set(offsetX, 1.7, offsetZ);
+    stall.add(post);
+  }
+
+  const counter = new THREE.Mesh(
+    new THREE.BoxGeometry(6, 0.8, 3.2),
+    new THREE.MeshStandardMaterial({ color: 0x7d5a36, roughness: 0.9 })
+  );
+  counter.position.y = 1.1;
+  stall.add(counter);
+
+  for (let i = 0; i < 4; i++) {
+    const goods = new THREE.Mesh(
+      new THREE.SphereGeometry(0.4 + Math.random() * 0.2, 12, 12),
+      new THREE.MeshStandardMaterial({ color: 0xf4c16e, roughness: 0.7 })
+    );
+    goods.position.set(-1.5 + i, 1.7, (i % 2 === 0 ? -0.6 : 0.6));
+    stall.add(goods);
+  }
+
+  return stall;
+}
+
+function buildBarn() {
+  const barn = new THREE.Group();
+
+  const base = new THREE.Mesh(
+    new THREE.BoxGeometry(14, 6, 10),
+    new THREE.MeshStandardMaterial({ color: 0x8b3e2f, roughness: 0.8 })
+  );
+  base.position.y = 3;
+  base.castShadow = true;
+  base.receiveShadow = true;
+  barn.add(base);
+
+  const roof = new THREE.Mesh(
+    new THREE.CylinderGeometry(8, 8, 12, 4, 1, true),
+    new THREE.MeshStandardMaterial({ color: 0x4a2015, roughness: 0.9, side: THREE.DoubleSide })
+  );
+  roof.rotation.z = Math.PI / 2;
+  roof.position.y = 7;
+  barn.add(roof);
+
+  const door = new THREE.Mesh(
+    new THREE.BoxGeometry(4, 4, 0.3),
+    new THREE.MeshStandardMaterial({ color: 0x5b2b1a, roughness: 0.8 })
+  );
+  door.position.set(0, 2, 5.15);
+  barn.add(door);
+
+  return barn;
 }
 
 function buildTownWalls() {
@@ -334,7 +585,7 @@ function buildTownWalls() {
 }
 
 function createForest() {
-  const treeCount = 80;
+  const treeCount = 110;
   for (let i = 0; i < treeCount; i++) {
     const angle = Math.random() * Math.PI * 2;
     const distance = 60 + Math.random() * 90;
@@ -342,7 +593,8 @@ function createForest() {
     const z = Math.sin(angle) * distance;
     const tree = buildTree();
     tree.position.set(x, 0, z);
-    scene.add(tree);
+    worldRoot.add(tree);
+    tree.updateMatrixWorld(true);
     colliders.push(new THREE.Box3().setFromObject(tree));
   }
 
@@ -359,16 +611,133 @@ function createForest() {
       description: 'A luminescent herb favored by healers of Aventuria.'
     });
     herb.position.copy(pos);
-    scene.add(herb);
-    interactables.push({ type: 'item', questId: 'moonherb', mesh: herb, itemName: 'Moonherb', amount: 1 });
+    worldRoot.add(herb);
+    interactables.push({
+      type: 'item',
+      questId: 'moonherb',
+      mesh: herb,
+      itemName: 'Moonherb',
+      amount: 1,
+      prompt: 'Press E to gather the Moonherb'
+    });
     itemMeshes.push(herb);
   });
+
+  const ancientTree = buildTree(2.2);
+  ancientTree.scale.set(1.4, 1.4, 1.4);
+  ancientTree.position.set(-88, 0, -12);
+  worldRoot.add(ancientTree);
+  ancientTree.updateMatrixWorld(true);
+  colliders.push(new THREE.Box3().setFromObject(ancientTree));
+
+  const campfire = buildForestCamp();
+  campfire.position.set(54, 0, 68);
+  worldRoot.add(campfire);
+  campfire.updateMatrixWorld(true);
+  colliders.push(new THREE.Box3().setFromObject(campfire));
 }
 
-function buildTree() {
+function createFarmland() {
+  const farmland = new THREE.Group();
+
+  const soilMaterial = new THREE.MeshStandardMaterial({ color: 0x3a2a1f, roughness: 0.95 });
+  const cropMaterial = new THREE.MeshStandardMaterial({ color: 0x4f7f3b, roughness: 0.8 });
+
+  const plot = new THREE.Mesh(new THREE.PlaneGeometry(18, 24), soilMaterial);
+  plot.rotation.x = -Math.PI / 2;
+  plot.position.set(34, 0.1, 26);
+  plot.receiveShadow = true;
+  farmland.add(plot);
+
+  for (let i = -4; i <= 4; i++) {
+    const row = new THREE.Mesh(new THREE.BoxGeometry(18, 0.2, 0.4), cropMaterial);
+    row.position.set(34, 0.3, 26 + i * 2);
+    farmland.add(row);
+  }
+
+  const orchard = new THREE.Group();
+  for (let i = 0; i < 4; i++) {
+    const sapling = buildTree(0.4);
+    sapling.scale.set(0.6, 0.6, 0.6);
+    sapling.position.set(46 + Math.sin(i) * 2, 0, 20 + i * 4);
+    orchard.add(sapling);
+    sapling.updateMatrixWorld(true);
+    colliders.push(new THREE.Box3().setFromObject(sapling));
+  }
+  farmland.add(orchard);
+
+  const barn = buildBarn();
+  barn.position.set(42, 0, 34);
+  farmland.add(barn);
+  barn.updateMatrixWorld(true);
+  colliders.push(new THREE.Box3().setFromObject(barn));
+
+  const fences = [
+    new THREE.Vector3(34, 0.8, 38),
+    new THREE.Vector3(34, 0.8, 14)
+  ];
+  fences.forEach((pos, idx) => {
+    const fence = new THREE.Mesh(
+      new THREE.BoxGeometry(22, 1.4, 0.4),
+      new THREE.MeshStandardMaterial({ color: 0x76532c, roughness: 0.8 })
+    );
+    fence.position.copy(pos);
+    farmland.add(fence);
+    fence.updateMatrixWorld(true);
+    colliders.push(new THREE.Box3().setFromObject(fence));
+  });
+
+  const sideFences = [
+    { position: new THREE.Vector3(23, 0.8, 26), rotation: Math.PI / 2 },
+    { position: new THREE.Vector3(45, 0.8, 26), rotation: Math.PI / 2 }
+  ];
+  sideFences.forEach((entry) => {
+    const fence = new THREE.Mesh(
+      new THREE.BoxGeometry(24, 1.4, 0.4),
+      new THREE.MeshStandardMaterial({ color: 0x6a4524, roughness: 0.8 })
+    );
+    fence.position.copy(entry.position);
+    fence.rotation.y = entry.rotation;
+    farmland.add(fence);
+    fence.updateMatrixWorld(true);
+    colliders.push(new THREE.Box3().setFromObject(fence));
+  });
+
+  const scarecrow = new THREE.Group();
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.15, 0.2, 4, 6),
+    new THREE.MeshStandardMaterial({ color: 0x8d6d3b, roughness: 0.8 })
+  );
+  pole.position.y = 2;
+  scarecrow.add(pole);
+
+  const crossBar = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.12, 0.12, 3.4, 6),
+    new THREE.MeshStandardMaterial({ color: 0x8d6d3b, roughness: 0.8 })
+  );
+  crossBar.rotation.z = Math.PI / 2;
+  crossBar.position.y = 2.4;
+  scarecrow.add(crossBar);
+
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(0.6, 12, 12),
+    new THREE.MeshStandardMaterial({ color: 0xe6d0a8, roughness: 0.9 })
+  );
+  head.position.y = 3.4;
+  scarecrow.add(head);
+
+  scarecrow.position.set(34, 0, 26);
+  farmland.add(scarecrow);
+  scarecrow.updateMatrixWorld(true);
+  colliders.push(new THREE.Box3().setFromObject(scarecrow));
+
+  worldRoot.add(farmland);
+}
+
+function buildTree(trunkRadius = 0.6) {
   const tree = new THREE.Group();
   const trunk = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.6, 0.8, 8, 6),
+    new THREE.CylinderGeometry(trunkRadius, trunkRadius + 0.2, 8, 6),
     new THREE.MeshStandardMaterial({ color: 0x4b2e1e, roughness: 1 })
   );
   trunk.position.y = 4;
@@ -379,7 +748,9 @@ function buildTree() {
   const foliageMaterial = new THREE.MeshStandardMaterial({ color: 0x224d1f, roughness: 0.8 });
   const layers = 3;
   for (let i = 0; i < layers; i++) {
-    const foliage = new THREE.Mesh(new THREE.ConeGeometry(4 - i, 4, 8), foliageMaterial);
+    const radius = 4 - i + Math.random() * 0.6;
+    const height = 4 + Math.random() * 0.5;
+    const foliage = new THREE.Mesh(new THREE.ConeGeometry(radius, height, 8), foliageMaterial);
     foliage.position.y = 6 + i * 2.5;
     foliage.castShadow = true;
     foliage.receiveShadow = true;
@@ -389,6 +760,42 @@ function buildTree() {
   return tree;
 }
 
+function buildForestCamp() {
+  const camp = new THREE.Group();
+  const clearing = new THREE.Mesh(
+    new THREE.CylinderGeometry(6, 6, 0.2, 16),
+    new THREE.MeshStandardMaterial({ color: 0x3d2f1f, roughness: 0.9 })
+  );
+  clearing.rotation.x = Math.PI / 2;
+  clearing.receiveShadow = true;
+  camp.add(clearing);
+
+  for (let i = 0; i < 4; i++) {
+    const log = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.4, 0.4, 4, 8),
+      new THREE.MeshStandardMaterial({ color: 0x5d3b25, roughness: 0.8 })
+    );
+    log.rotation.z = Math.PI / 2;
+    const angle = (i / 4) * Math.PI * 2;
+    log.position.set(Math.cos(angle) * 2.4, 0.8, Math.sin(angle) * 2.4);
+    log.castShadow = true;
+    camp.add(log);
+  }
+
+  const fire = new THREE.Mesh(
+    new THREE.ConeGeometry(1.2, 2.4, 12),
+    new THREE.MeshStandardMaterial({ color: 0xffb347, emissive: 0xff7f2a, emissiveIntensity: 0.8 })
+  );
+  fire.position.y = 1.4;
+  camp.add(fire);
+
+  const fireLight = new THREE.PointLight(0xffb347, 1.2, 28, 2);
+  fireLight.position.set(0, 3, 0);
+  camp.add(fireLight);
+
+  return camp;
+}
+
 function createWater() {
   const pond = new THREE.Mesh(
     new THREE.CircleGeometry(16, 32),
@@ -396,7 +803,51 @@ function createWater() {
   );
   pond.rotation.x = -Math.PI / 2;
   pond.position.set(-32, 0.11, 24);
-  scene.add(pond);
+  worldRoot.add(pond);
+
+  const dock = new THREE.Mesh(
+    new THREE.BoxGeometry(2, 0.4, 6),
+    new THREE.MeshStandardMaterial({ color: 0x5a4330, roughness: 0.7 })
+  );
+  dock.position.set(-32, 0.8, 14);
+  dock.castShadow = true;
+  dock.receiveShadow = true;
+  worldRoot.add(dock);
+  dock.updateMatrixWorld(true);
+  colliders.push(new THREE.Box3().setFromObject(dock));
+
+  const reeds = new THREE.Group();
+  for (let i = 0; i < 12; i++) {
+    const reed = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.1, 0.1, 3 + Math.random(), 5),
+      new THREE.MeshStandardMaterial({ color: 0x3f6b3e, roughness: 0.9 })
+    );
+    const angle = Math.random() * Math.PI * 2;
+    const radius = 12 + Math.random() * 2;
+    reed.position.set(Math.cos(angle) * radius - 32, 1.5, Math.sin(angle) * radius + 24);
+    reeds.add(reed);
+  }
+  worldRoot.add(reeds);
+}
+
+function createRocks() {
+  const rocks = new THREE.Group();
+  const rockMaterial = new THREE.MeshStandardMaterial({ color: 0x5a534d, roughness: 0.95 });
+
+  for (let i = 0; i < 22; i++) {
+    const geometry = new THREE.DodecahedronGeometry(1.2 + Math.random() * 1.4);
+    const rock = new THREE.Mesh(geometry, rockMaterial.clone());
+    const angle = Math.random() * Math.PI * 2;
+    const radius = 70 + Math.random() * 80;
+    rock.position.set(Math.cos(angle) * radius, 0.6, Math.sin(angle) * radius);
+    rock.rotation.set(Math.random(), Math.random(), Math.random());
+    rock.castShadow = true;
+    rock.receiveShadow = true;
+    rocks.add(rock);
+    colliders.push(new THREE.Box3().setFromObject(rock));
+  }
+
+  worldRoot.add(rocks);
 }
 
 function createProps() {
@@ -418,7 +869,8 @@ function createProps() {
   forge.add(anvil);
 
   forge.position.set(12, 0, -2);
-  scene.add(forge);
+  worldRoot.add(forge);
+  forge.updateMatrixWorld(true);
   colliders.push(new THREE.Box3().setFromObject(forge));
 
   const ingot = createCollectible({
@@ -427,8 +879,15 @@ function createProps() {
     description: 'A rare ingot forged from star metal, humming with magical energy.'
   });
   ingot.position.set(12, 2.5, -0.5);
-  scene.add(ingot);
-  interactables.push({ type: 'item', questId: 'ingot', mesh: ingot, itemName: 'Sky-Steel Ingot', amount: 1 });
+  worldRoot.add(ingot);
+  interactables.push({
+    type: 'item',
+    questId: 'ingot',
+    mesh: ingot,
+    itemName: 'Sky-Steel Ingot',
+    amount: 1,
+    prompt: 'Press E to recover the Sky-Steel'
+  });
   itemMeshes.push(ingot);
 
   const cart = new THREE.Mesh(
@@ -438,42 +897,66 @@ function createProps() {
   cart.position.set(-6, 1, 6);
   cart.castShadow = true;
   cart.receiveShadow = true;
-  scene.add(cart);
+  worldRoot.add(cart);
+  cart.updateMatrixWorld(true);
   colliders.push(new THREE.Box3().setFromObject(cart));
+
+  const well = new THREE.Group();
+  const wellBase = new THREE.Mesh(
+    new THREE.CylinderGeometry(2, 2, 1.6, 16),
+    new THREE.MeshStandardMaterial({ color: 0x6e6861, roughness: 0.9 })
+  );
+  wellBase.position.y = 0.8;
+  wellBase.castShadow = true;
+  wellBase.receiveShadow = true;
+  well.add(wellBase);
+
+  const roof = new THREE.Mesh(
+    new THREE.ConeGeometry(2.4, 2, 12),
+    new THREE.MeshStandardMaterial({ color: 0x7b4a2b, roughness: 0.8 })
+  );
+  roof.position.y = 3.2;
+  well.add(roof);
+
+  const posts = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.2, 0.2, 3, 6),
+    new THREE.MeshStandardMaterial({ color: 0x4f3a24, roughness: 0.7 })
+  );
+  posts.scale.set(1, 1, 3.4);
+  posts.position.y = 2.2;
+  well.add(posts);
+
+  well.position.set(4, 0, 10);
+  worldRoot.add(well);
+  well.updateMatrixWorld(true);
+  colliders.push(new THREE.Box3().setFromObject(well));
+
+  const crates = new THREE.Group();
+  for (let i = 0; i < 5; i++) {
+    const crate = new THREE.Mesh(
+      new THREE.BoxGeometry(1.8, 1.8, 1.8),
+      new THREE.MeshStandardMaterial({ color: 0x8a6136, roughness: 0.9 })
+    );
+    crate.position.set(i % 2 === 0 ? -2 : -4, 0.9 + Math.floor(i / 3) * 1.9, 12 + (i % 3));
+    crate.castShadow = true;
+    crate.receiveShadow = true;
+    crates.add(crate);
+  }
+  worldRoot.add(crates);
+  crates.updateMatrixWorld(true);
+  colliders.push(new THREE.Box3().setFromObject(crates));
 }
 
 function createNPCs() {
-  const npc = new THREE.Group();
-  const robe = new THREE.Mesh(
-    new THREE.CylinderGeometry(1.2, 1.2, 4, 12),
-    new THREE.MeshStandardMaterial({ color: 0x2b355a, roughness: 0.6 })
-  );
-  robe.position.y = 2;
-  robe.castShadow = true;
-  npc.add(robe);
-
-  const head = new THREE.Mesh(
-    new THREE.SphereGeometry(1, 16, 16),
-    new THREE.MeshStandardMaterial({ color: 0xf1d7b0 })
-  );
-  head.position.y = 4.6;
-  npc.add(head);
-
-  const staff = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.2, 0.2, 5, 8),
-    new THREE.MeshStandardMaterial({ color: 0x8d6d3b })
-  );
-  staff.position.set(1, 3, 0.6);
-  npc.add(staff);
-
-  npc.position.set(2, 0, 0);
-  scene.add(npc);
-
+  const captain = buildNPC({ robeColor: 0x2b355a, accentColor: 0xf1d7b0, accessory: 'staff' });
+  captain.position.set(2, 0, 0);
+  worldRoot.add(captain);
   interactables.push({
     type: 'npc',
     questId: 'report',
-    mesh: npc,
+    mesh: captain,
     name: 'Captain Aranth',
+    prompt: 'Press E to report to Captain Aranth',
     onInteract: () => {
       if (isQuestObjectiveComplete('moonherb') && isQuestObjectiveComplete('ingot')) {
         completeObjective('report');
@@ -483,6 +966,135 @@ function createNPCs() {
       }
     }
   });
+
+  const herbalist = buildNPC({ robeColor: 0x265f3a, accentColor: 0xe8c599, accessory: 'satchel' });
+  herbalist.position.set(36, 0, -6);
+  worldRoot.add(herbalist);
+  interactables.push({
+    type: 'npc',
+    mesh: herbalist,
+    name: 'Mira the Herbalist',
+    prompt: 'Press E to speak with Mira',
+    onInteract: () => {
+      showMessage('Mira: "Moonherbs glow brightest under the pines north of town. Follow the fireflies and you cannot miss them."');
+    }
+  });
+
+  const blacksmith = buildNPC({ robeColor: 0x3a2a20, accentColor: 0xd7b28c, accessory: 'hammer' });
+  blacksmith.position.set(14, 0, -6);
+  worldRoot.add(blacksmith);
+  interactables.push({
+    type: 'npc',
+    mesh: blacksmith,
+    name: 'Jorlan the Smith',
+    prompt: 'Press E to speak with Jorlan',
+    onInteract: () => {
+      showMessage("Jorlan: \"If you find my sky-steel, the caravan will ride with Aventuria's blessings.\"");
+    }
+  });
+
+  const traveler = buildNPC({ robeColor: 0x4a3a5a, accentColor: 0xf1d7b0, accessory: 'scroll' });
+  traveler.position.set(0, 0, 34);
+  worldRoot.add(traveler);
+  interactables.push({
+    type: 'npc',
+    mesh: traveler,
+    name: 'Lysa the Cartographer',
+    prompt: "Press E to hear Lysa's tales",
+    onInteract: () => {
+      showMessage('Lysa: "Beyond the palisades lie ruins swallowed by the forest. Perhaps you will chart them for the guild."');
+    }
+  });
+}
+
+function buildNPC({ robeColor, accentColor, accessory }) {
+  const npc = new THREE.Group();
+
+  const robe = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.2, 1.2, 4.2, 12),
+    new THREE.MeshStandardMaterial({ color: robeColor, roughness: 0.65 })
+  );
+  robe.position.y = 2.1;
+  robe.castShadow = true;
+  robe.receiveShadow = true;
+  npc.add(robe);
+
+  const shoulders = new THREE.Mesh(
+    new THREE.TorusGeometry(1.1, 0.25, 8, 16),
+    new THREE.MeshStandardMaterial({ color: accentColor, roughness: 0.5 })
+  );
+  shoulders.rotation.x = Math.PI / 2;
+  shoulders.position.y = 3.4;
+  npc.add(shoulders);
+
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(0.9, 18, 18),
+    new THREE.MeshStandardMaterial({ color: 0xf1d7b0, roughness: 0.7 })
+  );
+  head.position.y = 4.6;
+  npc.add(head);
+
+  if (accessory === 'staff') {
+    const staff = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.18, 0.25, 5.2, 8),
+      new THREE.MeshStandardMaterial({ color: 0x8d6d3b, roughness: 0.7 })
+    );
+    staff.position.set(1, 3, 0.6);
+    npc.add(staff);
+  }
+
+  if (accessory === 'satchel') {
+    const strap = new THREE.Mesh(
+      new THREE.TorusGeometry(1.6, 0.12, 6, 16, Math.PI),
+      new THREE.MeshStandardMaterial({ color: 0x3c2b1b, roughness: 0.8 })
+    );
+    strap.rotation.z = Math.PI / 3;
+    strap.position.set(-0.6, 3.2, 0.6);
+    npc.add(strap);
+
+    const bag = new THREE.Mesh(
+      new THREE.BoxGeometry(1.2, 1, 0.6),
+      new THREE.MeshStandardMaterial({ color: 0x5c432a, roughness: 0.9 })
+    );
+    bag.position.set(-0.9, 2.4, 1.2);
+    npc.add(bag);
+  }
+
+  if (accessory === 'hammer') {
+    const handle = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.15, 0.15, 3.2, 6),
+      new THREE.MeshStandardMaterial({ color: 0x5c4025, roughness: 0.8 })
+    );
+    handle.rotation.z = Math.PI / 2;
+    handle.position.set(1.6, 2.6, -0.4);
+    npc.add(handle);
+
+    const head = new THREE.Mesh(
+      new THREE.BoxGeometry(0.6, 0.6, 1.4),
+      new THREE.MeshStandardMaterial({ color: 0x444343, metalness: 0.6, roughness: 0.5 })
+    );
+    head.position.set(2.5, 2.6, -0.4);
+    npc.add(head);
+  }
+
+  if (accessory === 'scroll') {
+    const scroll = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.25, 0.25, 1.6, 8),
+      new THREE.MeshStandardMaterial({ color: 0xe3d4af, roughness: 0.7 })
+    );
+    scroll.rotation.x = Math.PI / 2;
+    scroll.position.set(-1.1, 3.2, 0.4);
+    npc.add(scroll);
+  }
+
+  npc.traverse((child) => {
+    if (child.isMesh) {
+      child.castShadow = true;
+      child.receiveShadow = true;
+    }
+  });
+
+  return npc;
 }
 
 function createCollectible({ name, questId, description }) {
@@ -631,7 +1243,7 @@ function updateInteractionPrompt() {
   const target = getClosestInteractable();
   if (target) {
     interactionLabel.classList.remove('hidden');
-    interactionLabel.textContent = target.type === 'npc' ? 'Press E to speak' : 'Press E to collect';
+    interactionLabel.textContent = target.prompt || (target.type === 'npc' ? 'Press E to speak' : 'Press E to collect');
   } else {
     interactionLabel.classList.add('hidden');
   }
